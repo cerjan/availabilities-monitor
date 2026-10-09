@@ -146,6 +146,11 @@
   .state.fail .icon { background: var(--critical); }
   .state.fail { color: var(--critical); }
 
+  .delta { font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .delta.up { color: var(--good-text); }
+  .delta.down { color: var(--critical); }
+  .delta.zero { color: var(--muted); font-weight: 400; }
+
   .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 12px; margin-bottom: 12px; }
   .card { margin: 0; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
   .card + .card { margin-top: 12px; }
@@ -298,6 +303,31 @@
     return el('span', { class: 'state ' + (ok ? 'ok' : 'fail') },
       el('span', { class: 'icon', 'aria-hidden': 'true', text: ok ? '✓' : '✕' }),
       ok ? 'OK' : 'Chyba');
+  }
+
+  /** Quantity change: ▲ +123 ks green, ▼ −128 ks red; the arrow and sign carry the direction without colour. */
+  function delta(value) {
+    if (value == null) return el('span', { class: 'delta zero', text: '—' });
+    if (value === 0) return el('span', { class: 'delta zero', text: '0 ks' });
+    return el('span', {
+      class: 'delta ' + (value > 0 ? 'up' : 'down'),
+      text: (value > 0 ? '▲ +' : '▼ −') + nf.format(Math.abs(value)) + ' ks',
+    });
+  }
+
+  /** Adds `qty_delta` / `qty_current_delta` against the previous successful run (failed runs are skipped). */
+  function withDeltas(runs, previous) {
+    let prev = previous && previous.qty_total != null ? previous : null;
+    for (const run of runs) {
+      if (!run.ok || run.qty_total == null) {
+        run.qty_delta = run.qty_current_delta = null;
+        continue;
+      }
+      run.qty_delta = prev ? run.qty_total - prev.qty_total : null;
+      run.qty_current_delta = prev && prev.qty_current != null && run.qty_current != null ? run.qty_current - prev.qty_current : null;
+      run.prev_ts = prev ? prev.ts : null;
+      prev = run;
+    }
   }
 
   function palette() {
@@ -462,10 +492,9 @@
     return [...byKey.values()];
   }
 
-  function renderCharts(runs, formats) {
+  function renderCharts(runs, formats, hasFuture) {
     const S = palette().series;
 
-    const hasFuture = runs.some((r) => r.qty_total != null && r.qty_current !== r.qty_total);
     lineChart('c-qty', [
       { label: 'Celkem', color: S[0], points: series(runs, (r) => r.qty_total) },
       ...(hasFuture ? [{ label: 'Aktuálně skladem (datum ≤ čas běhu)', color: S[1], points: series(runs, (r) => r.qty_current) }] : []),
@@ -525,7 +554,7 @@
       note ? el('div', { class: 'note' }, note) : null);
   }
 
-  function renderTiles(runs) {
+  function renderTiles(runs, hasFuture) {
     const tiles = $('tiles');
     tiles.replaceChildren();
     const last = runs[runs.length - 1];
@@ -540,8 +569,14 @@
 
     tiles.append(
       tile('Poslední běh', dtf.format(last.ts), el('span', null, state(!!last.ok), '  ', ago(last.ts), last.trigger === 'manual' ? ' · ručně' : '')),
-      tile('Součet kusů', lastOk ? num(lastOk.qty_total) : '—',
-        lastOk && lastOk.qty_current !== lastOk.qty_total ? 'aktuálně skladem ' + num(lastOk.qty_current) + (from ? ' · ' + from : '') : from),
+      tile('Součet kusů', lastOk ? num(lastOk.qty_total) : '—', lastOk ? el('span', null,
+        delta(lastOk.qty_delta),
+        lastOk.prev_ts ? ' oproti ' + dtf.format(lastOk.prev_ts) : '',
+        hasFuture ? el('br') : null,
+        hasFuture ? 'aktuálně skladem ' + num(lastOk.qty_current) + ' ' : null,
+        hasFuture ? delta(lastOk.qty_current_delta) : null,
+        from ? el('br') : null,
+        from) : null),
       tile('Záznamů', lastOk ? num(lastOk.row_count) : '—',
         lastOk ? 'SKU ' + num(lastOk.sku_count) + ' · nulových ' + num(lastOk.zero_rows) : null),
       tile('Minimální datum', lastOk && lastOk.date_min ? el('code', { text: lastOk.date_min }) : '—',
@@ -589,7 +624,7 @@
     ], formats);
   }
 
-  function renderRuns(runs) {
+  function renderRuns(runs, hasFuture) {
     const rawFrom = Date.now() - data.rawRetentionDays * DAY_MS;
     const newest = [...runs].reverse();
     const visible = showAllRuns ? newest : newest.slice(0, TABLE_LIMIT);
@@ -604,7 +639,11 @@
       { label: 'SKU', num: true, cell: (r) => num(r.sku_count) },
       { label: 'Nulové', num: true, cell: (r) => num(r.zero_rows) },
       { label: 'Součet kusů', num: true, cell: (r) => num(r.qty_total) },
-      { label: 'Aktuálně', num: true, cell: (r) => num(r.qty_current) },
+      { label: 'Změna', num: true, cell: (r) => (r.ok ? delta(r.qty_delta) : '—') },
+      ...(hasFuture ? [
+        { label: 'Aktuálně', num: true, cell: (r) => num(r.qty_current) },
+        { label: 'Změna akt.', num: true, cell: (r) => (r.ok ? delta(r.qty_current_delta) : '—') },
+      ] : []),
       { label: 'Min. datum', cell: (r) => (r.date_min ? el('code', { text: r.date_min }) : '—') },
       { label: 'Max. datum', cell: (r) => (r.date_max ? el('code', { text: r.date_max }) : '—') },
       { label: 'Neplatná data', num: true, cell: (r) => num(r.invalid_dates) },
@@ -619,20 +658,26 @@
       const button = el('button', { type: 'button', class: 'btn', text: 'Zobrazit všech ' + nf.format(newest.length) + ' běhů' });
       button.addEventListener('click', () => {
         showAllRuns = true;
-        renderRuns(data.runs);
+        renderRuns(data.runs, hasFutureStock(data.runs));
       });
       more.append(button);
     }
   }
 
+  // Current and total quantity only differ when the endpoint returns future deliveries (`includeFuture=true`).
+  function hasFutureStock(runs) {
+    return runs.some((r) => r.qty_total != null && r.qty_current !== r.qty_total);
+  }
+
   function render() {
     const runs = data.runs;
     const formats = aggregateFormats(runs);
-    renderTiles(runs);
+    const hasFuture = hasFutureStock(runs);
+    renderTiles(runs, hasFuture);
     renderAlert(runs);
-    renderCharts(runs, formats);
+    renderCharts(runs, formats, hasFuture);
     renderFormats(runs, formats);
-    renderRuns(runs);
+    renderRuns(runs, hasFuture);
   }
 
   // ---------- data & controls ----------
@@ -647,6 +692,7 @@
       }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data = await res.json();
+      withDeltas(data.runs, data.previous);
       render();
       $('status').textContent = 'Aktualizováno ' + tf.format(Date.now());
     } catch (e) {

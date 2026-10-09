@@ -6,7 +6,7 @@
   "observability": { "enabled": true },
 
   // Every 10 minutes at :05, :15, :25, :35, :45, :55 (UTC; minutes are timezone-independent).
-  "triggers": { "crons": ["5,15,25,35,45,55 * * * *"] },
+  "triggers": { "crons": ["5-55/10 * * * *"] },
 
   "routes": [{ "pattern": "reqs-availabilities.jace.cz", "custom_domain": true }],
   "workers_dev": false,

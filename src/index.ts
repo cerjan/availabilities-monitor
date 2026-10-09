@@ -69,17 +69,23 @@ async function listRuns(env: Env, url: URL): Promise<Response> {
   const to = Date.now();
   const from = to - days * DAY_MS;
 
-  const { results } = await env.DB.prepare(
-    `SELECT id, ts, trigger, ok, error, auth_status, auth_ms, avail_status, avail_ms, body_bytes, raw_key IS NOT NULL AS has_raw,
-            row_count, sku_count, qty_total, qty_current, zero_rows, date_min, date_min_ts, date_max, date_max_ts,
-            distinct_dates, invalid_dates, date_formats
-     FROM runs WHERE ts >= ? ORDER BY ts`,
-  )
-    .bind(from)
-    .all<Record<string, unknown>>();
+  const [{ results }, previous] = await Promise.all([
+    env.DB.prepare(
+      `SELECT id, ts, trigger, ok, error, auth_status, auth_ms, avail_status, avail_ms, body_bytes, raw_key IS NOT NULL AS has_raw,
+              row_count, sku_count, qty_total, qty_current, zero_rows, date_min, date_min_ts, date_max, date_max_ts,
+              distinct_dates, invalid_dates, date_formats
+       FROM runs WHERE ts >= ? ORDER BY ts`,
+    )
+      .bind(from)
+      .all<Record<string, unknown>>(),
+    // Last successful run before the range, so the first run in range has a quantity change too.
+    env.DB.prepare('SELECT ts, qty_total, qty_current FROM runs WHERE ts < ? AND ok = 1 ORDER BY ts DESC LIMIT 1')
+      .bind(from)
+      .first(),
+  ]);
 
   const runs = results.map((r) => ({ ...r, date_formats: r.date_formats ? JSON.parse(r.date_formats as string) : null }));
-  return json({ from, to, rawRetentionDays: RAW_RETENTION_DAYS, runs });
+  return json({ from, to, rawRetentionDays: RAW_RETENTION_DAYS, previous, runs });
 }
 
 async function downloadRaw(env: Env, id: number): Promise<Response> {
