@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "availabilities-monitor",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+
+  // Every 10 minutes at :05, :15, :25, :35, :45, :55 (UTC; minutes are timezone-independent).
+  "triggers": { "crons": ["5,15,25,35,45,55 * * * *"] },
+
+  "routes": [{ "pattern": "reqs-availabilities.jace.cz", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+
+  // AUTH_URL, AVAILABILITY_URL and AUTH_USERNAME are plain variables set in the Cloudflare dashboard,
+  // AUTH_PASSWORD and DASHBOARD_PASSWORD are secrets. Keep them on deploy instead of wiping them.
+  "keep_vars": true,
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "availabilities-monitor",
+      "database_id": "df0d35bf-bf12-4038-abc2-180e269ef1d9",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RAW",
+      "bucket_name": "availabilities-monitor-raw"
+    }
+  ]
+}

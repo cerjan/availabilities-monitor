@@ -1,0 +1,5 @@
+AUTH_URL=https://api.malfini.com/api/v4/api-auth/login
+AVAILABILITY_URL=https://api.malfini.com/api/v4/product/availabilities
+AUTH_USERNAME=
+AUTH_PASSWORD=
+DASHBOARD_PASSWORD=

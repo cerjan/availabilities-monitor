@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Monitor dostupností</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --wash: rgba(11, 11, 11, 0.04);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-6: #008300;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --critical: #d03b3b;
+    --warning: #fab219;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --wash: rgba(255, 255, 255, 0.05);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --series-4: #c98500;
+      --series-5: #d55181;
+      --series-6: #008300;
+      --good-text: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --wash: rgba(255, 255, 255, 0.05);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --good-text: #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .page { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
+
+  header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .sub, .muted { color: var(--text-secondary); }
+  .sub { margin: 2px 0 0; }
+  .actions { display: flex; gap: 8px; align-items: center; }
+  .actions form { margin: 0; }
+
+  .btn {
+    padding: 7px 14px;
+    font: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--wash); }
+  .btn:disabled { opacity: .6; cursor: progress; }
+  .btn-ghost { background: transparent; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 16px; }
+  .segmented { display: inline-flex; padding: 3px; background: var(--wash); border: 1px solid var(--border); border-radius: 10px; }
+  .segmented button {
+    padding: 5px 12px;
+    font: inherit;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .segmented button[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
+  .status-line { font-size: 13px; }
+
+  .alert {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--critical);
+    border-radius: 8px;
+    overflow-wrap: anywhere;
+  }
+  .alert[hidden] { display: none; }
+  .alert.warning { border-left-color: var(--warning); }
+
+  #content { transition: opacity .15s; }
+  #content.loading { opacity: .55; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .tile { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+  .tile .label { color: var(--text-secondary); font-size: 13px; }
+  .tile .value { margin-top: 2px; font-size: 22px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+  .tile .value.small { font-size: 15px; }
+  .tile .note { margin-top: 4px; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+
+  .state { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; white-space: nowrap; }
+  .state .icon { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: #fff; font-size: 10px; line-height: 1; }
+  .state.ok .icon { background: var(--good); }
+  .state.ok { color: var(--good-text); }
+  .state.fail .icon { background: var(--critical); }
+  .state.fail { color: var(--critical); }
+
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 12px; margin-bottom: 12px; }
+  .card { margin: 0; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+  .card + .card { margin-top: 12px; }
+  .charts .card + .card { margin-top: 0; }
+  .card header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+  .card header p { margin: 0; color: var(--text-secondary); font-size: 12px; }
+  .plot { position: relative; height: 260px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--surface); color: var(--text-secondary); font-weight: 500; }
+  td.num, th.num { text-align: right; }
+  td.wrap { white-space: normal; min-width: 220px; max-width: 420px; overflow-wrap: anywhere; }
+  td .err { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 12px; white-space: normal; }
+  td code, .tile code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+  tbody tr:hover { background: var(--wash); }
+  a { color: var(--series-1); }
+  .more { margin-top: 12px; }
+  .empty { padding: 24px 0; color: var(--text-secondary); text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div>
+      <h1>Monitor dostupností</h1>
+      <p class="sub">Snímek skladové dostupnosti každých 10 minut (:05, :15, :25, …)</p>
+    </div>
+    <div class="actions">
+      <button id="run-now" type="button" class="btn">Spustit teď</button>
+      <form method="post" action="/logout"><button type="submit" class="btn btn-ghost">Odhlásit</button></form>
+    </div>
+  </header>
+
+  <div class="filters">
+    <div class="segmented" role="group" aria-label="Období">
+      <button type="button" data-range="24h">24 hodin</button>
+      <button type="button" data-range="7d">7 dní</button>
+      <button type="button" data-range="14d">14 dní</button>
+      <button type="button" data-range="30d">30 dní</button>
+    </div>
+    <span id="status" class="muted status-line" aria-live="polite"></span>
+    <span id="run-status" class="muted status-line" aria-live="polite"></span>
+  </div>
+
+  <div id="alert" class="alert" role="alert" hidden></div>
+
+  <main id="content">
+    <section class="tiles" id="tiles" aria-label="Poslední běh"></section>
+
+    <section class="charts">
+      <figure class="card">
+        <header><h2>Součet kusů</h2><p>Součet <code>quantity</code> všech záznamů</p></header>
+        <div class="plot"><canvas id="c-qty" role="img" aria-label="Graf součtu kusů v čase"></canvas></div>
+      </figure>
+      <figure class="card">
+        <header><h2>Počet záznamů</h2><p>Řádky odpovědi, unikátní SKU, nulové množství</p></header>
+        <div class="plot"><canvas id="c-rows" role="img" aria-label="Graf počtu záznamů v čase"></canvas></div>
+      </figure>
+      <figure class="card">
+        <header><h2>Minimální datum v odpovědi</h2><p>Nejstarší hodnota <code>date</code></p></header>
+        <div class="plot"><canvas id="c-mindate" role="img" aria-label="Graf minimálního data v čase"></canvas></div>
+      </figure>
+      <figure class="card">
+        <header><h2>Formáty datumů</h2><p>Počet záznamů podle formátu <code>date</code></p></header>
+        <div class="plot"><canvas id="c-formats" role="img" aria-label="Graf formátů datumů v čase"></canvas></div>
+      </figure>
+      <figure class="card">
+        <header><h2>Doba odezvy</h2><p>Včetně stažení celé odpovědi</p></header>
+        <div class="plot"><canvas id="c-latency" role="img" aria-label="Graf doby odezvy v čase"></canvas></div>
+      </figure>
+      <figure class="card">
+        <header><h2>Velikost odpovědi</h2><p>Dekomprimované tělo odpovědi dostupností</p></header>
+        <div class="plot"><canvas id="c-size" role="img" aria-label="Graf velikosti odpovědi v čase"></canvas></div>
+      </figure>
+    </section>
+
+    <section class="card">
+      <header><h2>Formáty datumů v období</h2></header>
+      <div class="table-wrap"><table id="t-formats"></table></div>
+    </section>
+
+    <section class="card">
+      <header><h2>Běhy</h2><p id="runs-note"></p></header>
+      <div class="table-wrap"><table id="t-runs"></table></div>
+      <div class="more" id="runs-more"></div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" integrity="sha384-cVMg8E3QFwTvGCDuK+ET4PD341jF3W8nO1auiXfuZNQkzbUUiBGLsIQUE+b1mxws" crossorigin="anonymous"></script>
+<script>
+(() => {
+  'use strict';
+
+  const STEP_MS = 10 * 60 * 1000;
+  const GAP_MS = 1.5 * STEP_MS;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const TABLE_LIMIT = 288;
+  const MAX_FORMAT_SERIES = 5;
+  const RANGES = ['24h', '7d', '14d', '30d'];
+
+  const nf = new Intl.NumberFormat('cs-CZ');
+  const nf2 = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 });
+  const nfCompact = new Intl.NumberFormat('cs-CZ', { notation: 'compact', maximumFractionDigits: 1 });
+  const dtf = new Intl.DateTimeFormat('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const dtfFull = new Intl.DateTimeFormat('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const tf = new Intl.DateTimeFormat('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const $ = (id) => document.getElementById(id);
+  const content = $('content');
+  const charts = {};
+  let data = null;
+  let showAllRuns = false;
+  let range = new URLSearchParams(location.search).get('range');
+  if (!RANGES.includes(range)) range = '24h';
+
+  // ---------- helpers ----------
+
+  function el(tag, props, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props || {})) {
+      if (value == null || value === false) continue;
+      if (key === 'class') node.className = value;
+      else if (key === 'text') node.textContent = value;
+      else node.setAttribute(key, value === true ? '' : value);
+    }
+    for (const child of children) {
+      if (child != null && child !== false) node.append(child instanceof Node ? child : String(child));
+    }
+    return node;
+  }
+
+  const num = (v) => (v == null ? '—' : nf.format(v));
+  const seconds = (ms) => (ms == null ? '—' : nf2.format(ms / 1000) + ' s');
+  const megabytes = (bytes) => (bytes == null ? '—' : nf2.format(bytes / 1e6) + ' MB');
+
+  function ago(ts) {
+    const minutes = Math.round((Date.now() - ts) / 60000);
+    if (minutes < 1) return 'právě teď';
+    if (minutes < 60) return 'před ' + minutes + ' min';
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return 'před ' + hours + ' h';
+    return 'před ' + Math.floor(hours / 24) + ' dny';
+  }
+
+  function state(ok) {
+    return el('span', { class: 'state ' + (ok ? 'ok' : 'fail') },
+      el('span', { class: 'icon', 'aria-hidden': 'true', text: ok ? '✓' : '✕' }),
+      ok ? 'OK' : 'Chyba');
+  }
+
+  function palette() {
+    const style = getComputedStyle(document.documentElement);
+    const v = (name) => style.getPropertyValue(name).trim();
+    return {
+      surface: v('--surface'),
+      primary: v('--text-primary'),
+      secondary: v('--text-secondary'),
+      muted: v('--muted'),
+      grid: v('--grid'),
+      axis: v('--axis'),
+      border: v('--border'),
+      series: [1, 2, 3, 4, 5, 6].map((i) => v('--series-' + i)),
+    };
+  }
+
+  /** Points for one metric; inserts a null after missing runs so the line breaks instead of bridging the hole. */
+  function series(runs, pick) {
+    const points = [];
+    let prev = null;
+    for (const run of runs) {
+      if (prev !== null && run.ts - prev > GAP_MS) points.push({ x: prev + STEP_MS, y: null });
+      const y = pick(run);
+      points.push({ x: run.ts, y: y == null ? null : y, run });
+      prev = run.ts;
+    }
+    return points;
+  }
+
+  // ---------- charts ----------
+
+  const crosshair = {
+    id: 'crosshair',
+    afterDatasetsDraw(chart) {
+      const active = chart.tooltip && chart.tooltip.getActiveElements();
+      if (!active || !active.length) return;
+      const { ctx, chartArea } = chart;
+      ctx.save();
+      ctx.strokeStyle = palette().axis;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(active[0].element.x) + 0.5, chartArea.top);
+      ctx.lineTo(Math.round(active[0].element.x) + 0.5, chartArea.bottom);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
+
+  // A point with no neighbours (e.g. one good run between failures) would be invisible as a 0-radius line vertex.
+  function isolatedRadius(ctx) {
+    const points = ctx.dataset.data;
+    const i = ctx.dataIndex;
+    if (!points[i] || points[i].y == null) return 0;
+    const lonely = (p) => !p || p.y == null;
+    return lonely(points[i - 1]) && lonely(points[i + 1]) ? 3 : 0;
+  }
+
+  function xAxis(c) {
+    return {
+      type: 'time',
+      min: data.from,
+      max: data.to,
+      time: { displayFormats: { minute: 'HH:mm', hour: 'HH:mm', day: 'd. M.', week: 'd. M.', month: 'M/yyyy' } },
+      grid: { color: c.grid, drawTicks: false },
+      border: { color: c.axis },
+      ticks: { color: c.muted, maxRotation: 0, autoSkipPadding: 24, padding: 6, font: { size: 11 } },
+    };
+  }
+
+  function yAxis(c, extra) {
+    const axis = {
+      grid: { color: c.grid, drawTicks: false },
+      border: { display: false },
+      ticks: { color: c.muted, padding: 8, maxTicksLimit: 6, font: { size: 11 }, callback: (v) => nfCompact.format(v) },
+    };
+    if (!extra) return axis;
+    const { ticks, ...rest } = extra;
+    Object.assign(axis, rest);
+    if (ticks) Object.assign(axis.ticks, ticks);
+    if (axis.type === 'time' && !(ticks && ticks.callback)) delete axis.ticks.callback;
+    return axis;
+  }
+
+  function lineChart(id, sets, options) {
+    const c = palette();
+    const opts = options || {};
+    const format = opts.value || ((point) => nf.format(point.y));
+    if (charts[id]) charts[id].destroy();
+
+    charts[id] = new Chart($(id), {
+      type: 'line',
+      data: {
+        datasets: sets.map((s) => ({
+          label: s.label,
+          data: s.points,
+          borderColor: s.color,
+          backgroundColor: s.color,
+          borderWidth: 2,
+          borderJoinStyle: 'round',
+          borderCapStyle: 'round',
+          pointRadius: isolatedRadius,
+          pointHoverRadius: 5,
+          pointHoverBorderWidth: 2,
+          pointHoverBorderColor: c.surface,
+          pointHitRadius: 12,
+        })),
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        parsing: false,
+        normalized: true,
+        interaction: { mode: 'index', intersect: false },
+        layout: { padding: { top: 4, right: 8 } },
+        plugins: {
+          legend: {
+            display: sets.length > 1,
+            align: 'start',
+            labels: { color: c.secondary, usePointStyle: true, pointStyle: 'line', boxWidth: 18, padding: 14, font: { size: 12 } },
+          },
+          tooltip: {
+            backgroundColor: c.surface,
+            borderColor: c.border,
+            borderWidth: 1,
+            titleColor: c.secondary,
+            bodyColor: c.primary,
+            titleFont: { weight: 'normal', size: 12 },
+            bodyFont: { weight: '600', size: 13 },
+            padding: 10,
+            usePointStyle: true,
+            boxPadding: 6,
+            filter: (item) => item.raw && item.raw.y != null,
+            callbacks: {
+              title: (items) => (items.length ? dtfFull.format(items[0].raw.x) : ''),
+              label: (item) => format(item.raw) + '   ' + item.dataset.label,
+              labelPointStyle: () => ({ pointStyle: 'line', rotation: 0 }),
+            },
+          },
+        },
+        scales: { x: xAxis(c), y: yAxis(c, opts.y) },
+      },
+      plugins: [crosshair],
+    });
+  }
+
+  function aggregateFormats(runs) {
+    const byKey = new Map();
+    for (const run of runs) {
+      if (!run.date_formats) continue;
+      for (const [key, info] of Object.entries(run.date_formats)) {
+        let f = byKey.get(key);
+        if (!f) {
+          f = { key, example: info.example, first: run.ts, last: run.ts, runs: 0 };
+          byKey.set(key, f);
+        }
+        f.last = run.ts;
+        f.runs++;
+      }
+    }
+    return [...byKey.values()];
+  }
+
+  function renderCharts(runs, formats) {
+    const S = palette().series;
+
+    const hasFuture = runs.some((r) => r.qty_total != null && r.qty_current !== r.qty_total);
+    lineChart('c-qty', [
+      { label: 'Celkem', color: S[0], points: series(runs, (r) => r.qty_total) },
+      ...(hasFuture ? [{ label: 'Aktuálně skladem (datum ≤ čas běhu)', color: S[1], points: series(runs, (r) => r.qty_current) }] : []),
+    ]);
+
+    lineChart('c-rows', [
+      { label: 'Záznamy', color: S[0], points: series(runs, (r) => r.row_count) },
+      { label: 'SKU', color: S[1], points: series(runs, (r) => r.sku_count) },
+      { label: 'S nulovým množstvím', color: S[2], points: series(runs, (r) => r.zero_rows) },
+    ]);
+
+    lineChart('c-mindate', [{ label: 'Minimální datum', color: S[0], points: series(runs, (r) => r.date_min_ts) }], {
+      y: {
+        type: 'time',
+        time: { displayFormats: { minute: 'd. M. HH:mm', hour: 'd. M. HH:mm', day: 'd. M. yyyy', week: 'd. M. yyyy', month: 'M/yyyy', quarter: 'M/yyyy', year: 'yyyy' } },
+      },
+      value: (p) => p.run.date_min,
+    });
+
+    const shown = formats.slice(0, MAX_FORMAT_SERIES);
+    const rest = formats.slice(MAX_FORMAT_SERIES);
+    const count = (run, key) => (run.date_formats[key] ? run.date_formats[key].count : 0);
+    const formatSets = shown.map((f, i) => ({
+      label: f.key,
+      color: S[i],
+      points: series(runs, (r) => (r.date_formats ? count(r, f.key) : null)),
+    }));
+    if (rest.length) {
+      formatSets.push({
+        label: 'Ostatní (' + rest.length + ')',
+        color: S[MAX_FORMAT_SERIES],
+        points: series(runs, (r) => (r.date_formats ? rest.reduce((sum, f) => sum + count(r, f.key), 0) : null)),
+      });
+    }
+    lineChart('c-formats', formatSets.length ? formatSets : [{ label: 'Bez dat', color: S[0], points: [] }], { y: { beginAtZero: true } });
+
+    lineChart('c-latency', [
+      { label: 'Dostupnosti', color: S[0], points: series(runs, (r) => (r.avail_ms == null ? null : r.avail_ms / 1000)) },
+      { label: 'Přihlášení', color: S[1], points: series(runs, (r) => (r.auth_ms == null ? null : r.auth_ms / 1000)) },
+    ], {
+      y: { beginAtZero: true, ticks: { callback: (v) => nf2.format(v) + ' s' } },
+      value: (p) => nf2.format(p.y) + ' s',
+    });
+
+    lineChart('c-size', [{ label: 'Velikost odpovědi', color: S[0], points: series(runs, (r) => (r.body_bytes == null ? null : r.body_bytes / 1e6)) }], {
+      y: { beginAtZero: true, ticks: { callback: (v) => nf2.format(v) + ' MB' } },
+      value: (p) => nf2.format(p.y) + ' MB',
+    });
+  }
+
+  // ---------- tiles, alert, tables ----------
+
+  function tile(label, value, note, small) {
+    return el('div', { class: 'tile' },
+      el('div', { class: 'label', text: label }),
+      el('div', { class: 'value' + (small ? ' small' : '') }, value),
+      note ? el('div', { class: 'note' }, note) : null);
+  }
+
+  function renderTiles(runs) {
+    const tiles = $('tiles');
+    tiles.replaceChildren();
+    const last = runs[runs.length - 1];
+    const lastOk = [...runs].reverse().find((r) => r.ok);
+    const okCount = runs.filter((r) => r.ok).length;
+    const from = lastOk && lastOk !== last ? 'z běhu ' + dtf.format(lastOk.ts) : null;
+
+    if (!last) {
+      tiles.append(tile('Poslední běh', '—', 'V tomto období žádný běh.'));
+      return;
+    }
+
+    tiles.append(
+      tile('Poslední běh', dtf.format(last.ts), el('span', null, state(!!last.ok), '  ', ago(last.ts), last.trigger === 'manual' ? ' · ručně' : '')),
+      tile('Součet kusů', lastOk ? num(lastOk.qty_total) : '—',
+        lastOk && lastOk.qty_current !== lastOk.qty_total ? 'aktuálně skladem ' + num(lastOk.qty_current) + (from ? ' · ' + from : '') : from),
+      tile('Záznamů', lastOk ? num(lastOk.row_count) : '—',
+        lastOk ? 'SKU ' + num(lastOk.sku_count) + ' · nulových ' + num(lastOk.zero_rows) : null),
+      tile('Minimální datum', lastOk && lastOk.date_min ? el('code', { text: lastOk.date_min }) : '—',
+        lastOk && lastOk.date_max ? el('span', null, 'max ', el('code', { text: lastOk.date_max })) : null, true),
+      tile('Formáty datumů', lastOk && lastOk.date_formats ? String(Object.keys(lastOk.date_formats).length) : '—',
+        lastOk && lastOk.date_formats ? Object.keys(lastOk.date_formats).join(', ') : null),
+      tile('Úspěšnost v období', okCount + ' / ' + runs.length,
+        runs.length - okCount ? (runs.length - okCount) + ' neúspěšných' : 'bez chyb'),
+    );
+  }
+
+  function renderAlert(runs) {
+    const alert = $('alert');
+    const last = runs[runs.length - 1];
+    if (!last || !last.error) {
+      alert.hidden = true;
+      return;
+    }
+    alert.className = 'alert' + (last.ok ? ' warning' : '');
+    alert.replaceChildren(
+      el('strong', { text: (last.ok ? 'Varování' : 'Poslední běh selhal') + ' (' + dtf.format(last.ts) + '):' }),
+      el('span', { text: last.error }));
+    alert.hidden = false;
+  }
+
+  function table(id, columns, rows) {
+    const head = el('thead', null, el('tr', null, ...columns.map((col) => el('th', { class: col.num ? 'num' : null, scope: 'col', text: col.label }))));
+    const body = el('tbody');
+    for (const row of rows) {
+      body.append(el('tr', null, ...columns.map((col) => el('td', { class: [col.num ? 'num' : '', col.wrap ? 'wrap' : ''].join(' ').trim() || null }, col.cell(row)))));
+    }
+    if (!rows.length) body.append(el('tr', null, el('td', { class: 'empty', colspan: String(columns.length), text: 'Žádná data' })));
+    $(id).replaceChildren(head, body);
+  }
+
+  function renderFormats(runs, formats) {
+    const last = [...runs].reverse().find((r) => r.date_formats);
+    table('t-formats', [
+      { label: 'Formát', cell: (f) => el('code', { text: f.key }) },
+      { label: 'Příklad', cell: (f) => el('code', { text: f.example }) },
+      { label: 'V posledním běhu', num: true, cell: (f) => num(last && last.date_formats[f.key] ? last.date_formats[f.key].count : 0) },
+      { label: 'Běhů', num: true, cell: (f) => num(f.runs) },
+      { label: 'Poprvé', cell: (f) => dtf.format(f.first) },
+      { label: 'Naposledy', cell: (f) => dtf.format(f.last) },
+    ], formats);
+  }
+
+  function renderRuns(runs) {
+    const rawFrom = Date.now() - data.rawRetentionDays * DAY_MS;
+    const newest = [...runs].reverse();
+    const visible = showAllRuns ? newest : newest.slice(0, TABLE_LIMIT);
+
+    table('t-runs', [
+      { label: 'Čas', cell: (r) => dtf.format(r.ts) + (r.trigger === 'manual' ? ' (ručně)' : '') },
+      { label: 'Stav', wrap: true, cell: (r) => el('span', null, state(!!r.ok), r.error ? el('span', { class: 'err', text: r.error }) : null) },
+      { label: 'Login', num: true, cell: (r) => (r.auth_status ?? '—') + ' · ' + seconds(r.auth_ms) },
+      { label: 'Dostupnosti', num: true, cell: (r) => (r.avail_status ?? '—') + ' · ' + seconds(r.avail_ms) },
+      { label: 'Velikost', num: true, cell: (r) => megabytes(r.body_bytes) },
+      { label: 'Záznamy', num: true, cell: (r) => num(r.row_count) },
+      { label: 'SKU', num: true, cell: (r) => num(r.sku_count) },
+      { label: 'Nulové', num: true, cell: (r) => num(r.zero_rows) },
+      { label: 'Součet kusů', num: true, cell: (r) => num(r.qty_total) },
+      { label: 'Aktuálně', num: true, cell: (r) => num(r.qty_current) },
+      { label: 'Min. datum', cell: (r) => (r.date_min ? el('code', { text: r.date_min }) : '—') },
+      { label: 'Max. datum', cell: (r) => (r.date_max ? el('code', { text: r.date_max }) : '—') },
+      { label: 'Neplatná data', num: true, cell: (r) => num(r.invalid_dates) },
+      { label: 'Formáty', cell: (r) => (r.date_formats ? Object.entries(r.date_formats).map(([k, v]) => k + ' (' + nf.format(v.count) + ')').join(', ') : '—') },
+      { label: 'Data', cell: (r) => (r.has_raw && r.ts >= rawFrom ? el('a', { href: '/api/runs/' + r.id + '/raw', text: 'JSON' }) : '—') },
+    ], visible);
+
+    $('runs-note').textContent = 'Surová odpověď je k dispozici ' + data.rawRetentionDays + ' dní.';
+    const more = $('runs-more');
+    more.replaceChildren();
+    if (!showAllRuns && newest.length > TABLE_LIMIT) {
+      const button = el('button', { type: 'button', class: 'btn', text: 'Zobrazit všech ' + nf.format(newest.length) + ' běhů' });
+      button.addEventListener('click', () => {
+        showAllRuns = true;
+        renderRuns(data.runs);
+      });
+      more.append(button);
+    }
+  }
+
+  function render() {
+    const runs = data.runs;
+    const formats = aggregateFormats(runs);
+    renderTiles(runs);
+    renderAlert(runs);
+    renderCharts(runs, formats);
+    renderFormats(runs, formats);
+    renderRuns(runs);
+  }
+
+  // ---------- data & controls ----------
+
+  async function load() {
+    content.classList.add('loading');
+    try {
+      const res = await fetch('/api/runs?range=' + encodeURIComponent(range), { headers: { accept: 'application/json' } });
+      if (res.status === 401) {
+        location.href = '/login';
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      data = await res.json();
+      render();
+      $('status').textContent = 'Aktualizováno ' + tf.format(Date.now());
+    } catch (e) {
+      $('status').textContent = 'Načtení selhalo: ' + e.message;
+    } finally {
+      content.classList.remove('loading');
+    }
+  }
+
+  function syncRangeButtons() {
+    for (const button of document.querySelectorAll('[data-range]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.range === range));
+    }
+  }
+
+  for (const button of document.querySelectorAll('[data-range]')) {
+    button.addEventListener('click', () => {
+      range = button.dataset.range;
+      showAllRuns = false;
+      history.replaceState(null, '', '?range=' + range);
+      syncRangeButtons();
+      load();
+    });
+  }
+
+  $('run-now').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const status = $('run-status');
+    button.disabled = true;
+    button.textContent = 'Probíhá…';
+    status.textContent = '';
+    try {
+      const res = await fetch('/api/run', { method: 'POST' });
+      if (res.status === 401) {
+        location.href = '/login';
+        return;
+      }
+      const run = await res.json();
+      status.textContent = run.ok ? 'Ruční běh v pořádku.' : 'Ruční běh selhal: ' + run.error;
+      await load();
+    } catch (e) {
+      status.textContent = 'Ruční běh selhal: ' + e.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Spustit teď';
+    }
+  });
+
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => data && render());
+  setInterval(() => document.visibilityState === 'visible' && load(), 2 * 60 * 1000);
+
+  syncRangeButtons();
+  load();
+})();
+</script>
+</body>
+</html>
