@@ -1,10 +1,10 @@
 # availabilities-monitor
 
-Cloudflare Worker, který každých 10 minut (:05, :15, :25, …) stáhne snímek skladové dostupnosti z B2B API, uloží surovou odpověď do R2 a statistiky do D1. Přehled s grafy běží na <https://reqs-availabilities.jace.cz> a je chráněný heslem.
+Cloudflare Worker `reqs-availabilities`, který každých 10 minut (:05, :15, :25, …) stáhne snímek skladové dostupnosti z B2B API, uloží surovou odpověď do R2 a statistiky do D1. Přehled s grafy běží na <https://reqs-availabilities.jace.cz> a je chráněný heslem.
 
 ## Jak to funguje
 
-1. **Cron** (`5,15,25,35,45,55 * * * *`) spustí `scheduled` handler.
+1. **Cron** (`5-55/10 * * * *`) spustí `scheduled` handler.
 2. `POST AUTH_URL` s `{username, password}` → `access_token` (přihlašuje se při každém běhu).
 3. `GET AVAILABILITY_URL` s `Authorization: Bearer <token>` → pole `{productSizeCode, quantity, date}`.
 4. Surová odpověď se uloží gzipem do R2 (`raw/YYYY/MM/DD/HHMM.json.gz`, UTC), a to i při chybě. Lifecycle pravidlo `expire-raw` ji po **14 dnech** smaže.
@@ -27,11 +27,11 @@ Cloudflare Worker, který každých 10 minut (:05, :15, :25, …) stáhne sníme
 | `AUTH_PASSWORD` | secret | heslo pro přihlášení |
 | `DASHBOARD_PASSWORD` | secret | heslo pro zobrazení přehledu (jeho změna odhlásí všechny relace) |
 
-Proměnné se spravují v Cloudflare (Workers → availabilities-monitor → Settings → Variables and Secrets), ne v repozitáři. Díky `keep_vars: true` je `wrangler deploy` nepřepíše.
+Proměnné se spravují v Cloudflare (Workers → reqs-availabilities → Settings → Variables and Secrets), ne v repozitáři. Díky `keep_vars: true` je `wrangler deploy` nepřepíše.
 
 ```sh
-npx wrangler secret put AUTH_PASSWORD
-npx wrangler secret put DASHBOARD_PASSWORD
+npx wrangler secret put AUTH_PASSWORD --name reqs-availabilities
+npx wrangler secret put DASHBOARD_PASSWORD --name reqs-availabilities
 ```
 
 ## Nasazení
@@ -42,7 +42,7 @@ npm run db:migrate   # D1 migrace (remote)
 npm run deploy
 ```
 
-Prostředky v Cloudflare: Worker `availabilities-monitor`, D1 `availabilities-monitor`, R2 `availabilities-monitor-raw`, custom doména `reqs-availabilities.jace.cz`.
+Prostředky v Cloudflare: Worker `reqs-availabilities`, D1 `availabilities-monitor`, R2 `availabilities-monitor-raw`, custom doména `reqs-availabilities.jace.cz`.
 
 ## Lokální vývoj
 
@@ -50,7 +50,7 @@ Prostředky v Cloudflare: Worker `availabilities-monitor`, D1 `availabilities-mo
 cp .dev.vars.example .dev.vars   # doplnit hodnoty
 npm run db:migrate:local
 npm run dev
-curl "http://localhost:8787/__scheduled?cron=5,15,25,35,45,55+*+*+*+*"   # ruční spuštění cronu
+curl "http://localhost:8787/__scheduled?cron=5-55/10+*+*+*+*"   # ruční spuštění cronu
 ```
 
 ## HTTP endpointy
