@@ -4,6 +4,8 @@ import { computeStats, type AvailabilityStats } from './stats';
 const USER_AGENT = 'availabilities-monitor (+https://reqs-availabilities.jace.cz)';
 const AUTH_TIMEOUT_MS = 30_000;
 const AVAILABILITY_TIMEOUT_MS = 180_000;
+// A cached token is reused only while it stays valid for longer than the download can take.
+const TOKEN_MARGIN_MS = 5 * 60_000;
 
 export type Trigger = 'cron' | 'manual';
 
@@ -12,6 +14,7 @@ export interface Run {
   trigger: Trigger;
   ok: boolean;
   error: string | null;
+  authCached: boolean;
   authStatus: number | null;
   authMs: number | null;
   availStatus: number | null;
@@ -21,13 +24,14 @@ export interface Run {
   stats: AvailabilityStats | null;
 }
 
-/** Logs in, downloads the availability snapshot, archives it to R2 and records its statistics in D1. */
+/** Logs in (or reuses a cached token), downloads the availability snapshot, archives it to R2 and records its statistics in D1. */
 export async function collect(env: Env, trigger: Trigger, ts: number): Promise<Run> {
   const run: Run = {
     ts,
     trigger,
     ok: false,
     error: null,
+    authCached: false,
     authStatus: null,
     authMs: null,
     availStatus: null,
@@ -38,8 +42,18 @@ export async function collect(env: Env, trigger: Trigger, ts: number): Promise<R
   };
 
   try {
-    const token = await stage('login', () => login(env, run));
-    const { body, contentType, fetchedAt } = await stage('availability', () => fetchAvailability(env, run, token));
+    const cached = await stage('token cache', () => cachedToken(env));
+    run.authCached = cached !== null;
+    let response = cached === null ? null : await stage('availability', () => fetchAvailability(env, run, cached));
+
+    // No valid cached token, or the API rejected it before it expired: log in.
+    if (response === null || run.availStatus === 401) {
+      run.authCached = false;
+      const { token, expiresAt } = await stage('login', () => login(env, run));
+      if (expiresAt !== null) await cacheToken(env, run, token, expiresAt);
+      response = await stage('availability', () => fetchAvailability(env, run, token));
+    }
+    const { body, contentType, fetchedAt } = response;
 
     try {
       run.rawKey = await storeRaw(env, run, body, contentType);
@@ -69,7 +83,8 @@ export async function collect(env: Env, trigger: Trigger, ts: number): Promise<R
   return run;
 }
 
-async function login(env: Env, run: Run): Promise<string> {
+/** Returns the token in `expiresAt` as ms since epoch, or null when the response has no usable `expires_in`. */
+async function login(env: Env, run: Run): Promise<{ token: string; expiresAt: number | null }> {
   const started = Date.now();
   const res = await fetch(env.AUTH_URL, {
     method: 'POST',
@@ -84,13 +99,39 @@ async function login(env: Env, run: Run): Promise<string> {
   if (!res.ok) throw new Error(`HTTP ${res.status} ${preview(text)}`);
 
   let token: unknown;
+  let expiresIn: unknown;
   try {
-    token = (JSON.parse(text) as { access_token?: unknown }).access_token;
+    ({ access_token: token, expires_in: expiresIn } = JSON.parse(text) as { access_token?: unknown; expires_in?: unknown });
   } catch {
     throw new Error('invalid JSON');
   }
   if (typeof token !== 'string' || !token) throw new Error('response has no access_token');
-  return token;
+
+  // expires_in is in seconds (OAuth 2.0), counted from before the request so the token is never assumed valid for longer than it is.
+  const seconds = Number(expiresIn);
+  return { token, expiresAt: Number.isFinite(seconds) && seconds > 0 ? started + seconds * 1000 : null };
+}
+
+/** Token from a previous login of the same account that stays valid for at least `TOKEN_MARGIN_MS`. */
+async function cachedToken(env: Env): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT token FROM auth_token WHERE account = ? AND expires_at > ?')
+    .bind(tokenAccount(env), Date.now() + TOKEN_MARGIN_MS)
+    .first<{ token: string }>();
+  return row?.token ?? null;
+}
+
+async function cacheToken(env: Env, run: Run, token: string, expiresAt: number): Promise<void> {
+  try {
+    await env.DB.prepare('INSERT OR REPLACE INTO auth_token (id, account, token, expires_at) VALUES (1, ?, ?, ?)')
+      .bind(tokenAccount(env), token, expiresAt)
+      .run();
+  } catch (e) {
+    run.error = `token cache: ${errorMessage(e)}`;
+  }
+}
+
+function tokenAccount(env: Env): string {
+  return `${env.AUTH_USERNAME} ${env.AUTH_URL}`;
 }
 
 async function fetchAvailability(env: Env, run: Run, token: string) {
@@ -136,16 +177,17 @@ export async function claimCronTick(env: Env, ts: number): Promise<boolean> {
 async function save(env: Env, run: Run): Promise<void> {
   const s = run.stats;
   await env.DB.prepare(
-    `INSERT INTO runs (ts, trigger, ok, error, auth_status, auth_ms, avail_status, avail_ms, body_bytes, raw_key,
+    `INSERT INTO runs (ts, trigger, ok, error, auth_cached, auth_status, auth_ms, avail_status, avail_ms, body_bytes, raw_key,
                        row_count, sku_count, qty_total, qty_current, zero_rows, date_min, date_min_ts, date_max, date_max_ts,
                        distinct_dates, invalid_dates, date_formats)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       run.ts,
       run.trigger,
       run.ok ? 1 : 0,
       run.error,
+      run.authCached ? 1 : 0,
       run.authStatus,
       run.authMs,
       run.availStatus,

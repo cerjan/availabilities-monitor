@@ -632,7 +632,7 @@
     table('t-runs', [
       { label: 'Čas', cell: (r) => dtf.format(r.ts) + (r.trigger === 'manual' ? ' (ručně)' : '') },
       { label: 'Stav', wrap: true, cell: (r) => el('span', null, state(!!r.ok), r.error ? el('span', { class: 'err', text: r.error }) : null) },
-      { label: 'Login', num: true, cell: (r) => (r.auth_status ?? '—') + ' · ' + seconds(r.auth_ms) },
+      { label: 'Login', num: true, cell: (r) => (r.auth_cached ? 'z cache' : (r.auth_status ?? '—') + ' · ' + seconds(r.auth_ms)) },
       { label: 'Dostupnosti', num: true, cell: (r) => (r.avail_status ?? '—') + ' · ' + seconds(r.avail_ms) },
       { label: 'Velikost', num: true, cell: (r) => megabytes(r.body_bytes) },
       { label: 'Záznamy', num: true, cell: (r) => num(r.row_count) },

@@ -78,7 +78,7 @@ async function listRuns(env: Env, url: URL): Promise<Response> {
 
   const [{ results }, previous] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, ts, trigger, ok, error, auth_status, auth_ms, avail_status, avail_ms, body_bytes, raw_key IS NOT NULL AS has_raw,
+      `SELECT id, ts, trigger, ok, error, auth_cached, auth_status, auth_ms, avail_status, avail_ms, body_bytes, raw_key IS NOT NULL AS has_raw,
               row_count, sku_count, qty_total, qty_current, zero_rows, date_min, date_min_ts, date_max, date_max_ts,
               distinct_dates, invalid_dates, date_formats
        FROM runs WHERE ts >= ? ORDER BY ts`,
