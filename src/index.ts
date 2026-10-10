@@ -1,4 +1,4 @@
-import { collect, type Run } from './collect';
+import { claimCronTick, collect, type Run } from './collect';
 import type { Env } from './env';
 import { checkPassword, clearedSessionCookie, hasSession, sessionCookie } from './session';
 import dashboardHtml from './pages/dashboard.html';
@@ -6,7 +6,8 @@ import loginHtml from './pages/login.html';
 
 const RAW_RETENTION_DAYS = 14;
 const RANGES: Record<string, number> = { '24h': 1, '7d': 7, '14d': 14, '30d': 30 };
-const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 
 const SECURITY_HEADERS = {
   'content-security-policy':
@@ -44,7 +45,13 @@ export default {
   },
 
   async scheduled(controller, env) {
-    await collect(env, 'cron', controller.scheduledTime);
+    // Cloudflare can deliver one tick more than once, seconds apart; only the first invocation per scheduled minute collects.
+    const ts = Math.floor(controller.scheduledTime / MINUTE_MS) * MINUTE_MS;
+    if (!(await claimCronTick(env, ts))) {
+      console.log(JSON.stringify({ event: 'duplicate-tick', scheduledTime: controller.scheduledTime }));
+      return;
+    }
+    await collect(env, 'cron', ts);
   },
 } satisfies ExportedHandler<Env>;
 

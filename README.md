@@ -4,7 +4,7 @@ Cloudflare Worker `reqs-availabilities`, který každých 10 minut (:05, :15, :2
 
 ## Jak to funguje
 
-1. **Cron** (`5-55/10 * * * *`) spustí `scheduled` handler.
+1. **Cron** (`5-55/10 * * * *`) spustí `scheduled` handler. Cloudflare občas doručí jeden tick víckrát (desítky sekund po sobě), proto si běh nejdřív zabere naplánovanou minutu v tabulce `cron_ticks` a další doručení téže minuty se přeskočí (v logu `duplicate-tick`).
 2. `POST AUTH_URL` s `{username, password}` → `access_token` (přihlašuje se při každém běhu).
 3. `GET AVAILABILITY_URL` s `Authorization: Bearer <token>` → pole `{productSizeCode, quantity, date}`.
 4. Surová odpověď se uloží gzipem do R2 (`raw/YYYY/MM/DD/HHMM.json.gz`, UTC), a to i při chybě. Lifecycle pravidlo `expire-raw` ji po **14 dnech** smaže.
@@ -50,7 +50,7 @@ Prostředky v Cloudflare: Worker `reqs-availabilities`, D1 `availabilities-monit
 cp .dev.vars.example .dev.vars   # doplnit hodnoty
 npm run db:migrate:local
 npm run dev
-curl "http://localhost:8787/__scheduled?cron=5-55/10+*+*+*+*"   # ruční spuštění cronu
+curl "http://localhost:8787/__scheduled?cron=5-55/10+*+*+*+*"   # ruční spuštění cronu (znovu až v další minutě)
 ```
 
 ## HTTP endpointy

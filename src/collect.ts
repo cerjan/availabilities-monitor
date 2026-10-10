@@ -127,6 +127,12 @@ function rawKey(ts: number, trigger: Trigger): string {
   return `raw/${y}/${m}/${d}/${name}.json.gz`;
 }
 
+/** Claims a scheduled cron minute; false if another invocation of the same tick already claimed it. */
+export async function claimCronTick(env: Env, ts: number): Promise<boolean> {
+  const { meta } = await env.DB.prepare('INSERT INTO cron_ticks (ts) VALUES (?) ON CONFLICT DO NOTHING').bind(ts).run();
+  return meta.changes === 1;
+}
+
 async function save(env: Env, run: Run): Promise<void> {
   const s = run.stats;
   await env.DB.prepare(
